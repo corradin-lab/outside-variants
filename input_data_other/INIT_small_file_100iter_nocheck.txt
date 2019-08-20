@@ -1,0 +1,13 @@
+PIPE_TYPE	CC
+GS	6
+ITER	100
+TRIPS	1
+RSID	2
+SNP	4
+DELIM	SPACE
+OR_CALC	3
+PARTIAL	1
+PATH	../input_data_gen/
+CHECK	0
+SAMPLE	CASE_impute2_small_sample_out,CONTROL_impute2_small_sample_out
+COVS	Covariates_sex
