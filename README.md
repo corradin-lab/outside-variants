@@ -23,7 +23,7 @@ python_scripts/OVP_script.py -h
 ```
 to print a list of all command-line options. If these commands fail with an error, then something as gone wrong during the installation process.
 
-To do a walk-through tutorial on how to use the scripts and the format of inputs/outputs, click [here]()
+To do a walk-through tutorial on how to use the scripts and the format of inputs/outputs, click [here](https://mybinder.org/v2/gh/corradin-lab/outside-variants/master?urlpath=lab/tree/OVP_tutorial.ipynb)
 
 To learn about the theoretical framework of our approach, click [here].
 

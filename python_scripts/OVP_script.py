@@ -50,8 +50,13 @@ if __name__ == "__main__":
     parser.add_argument('--case', type=int, default=None, help='number of total cases. Usually will get this number from case sample file. Use for pipelines that do not specify sample files. WARNING: if both this flag and the sample case is present, it will cause an error and terminate the program.')
 
     parser.add_argument('--control', type=int, default=None, help='number of total control. Usually will get this number from case sample file. Use for pipelines that do not specify sample files. WARNING: if both this flag and the sample case is present, this will cause an error and terminate the program.')
-    logging.info("Beginning Outside Variant Pipeline analysis.")
+
     args = parser.parse_args()
+    if args.debug_mode:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
+    logging.info("Starting outside variant pipeline analysis")
     file1 = args.case_gen
     file2 = args.control_gen
     pairing = args.SNP_pairs
@@ -59,23 +64,16 @@ if __name__ == "__main__":
     p_file = args.output_folder
     override_folder = args.override
 
+
     odds_file = ""
 
-    logging.info("Reading arguments")
-    if args.debug_mode:
-        logging.basicConfig(level=logging.DEBUG)
-    else:
-        logging.basicConfig(level=logging.INFO)
-
-    logging.info("Initializing pipeline. This might take a few seconds")
+    logging.info("Initializing pipeline. This might take a few seconds.")
     args.exec_dir = os.getcwd()
     with cd(args.input_folder_path):
         pipe = Pipeline.init_from_file(
             init_file, file1, file2, pairing, p_file, odds_file, args)
-    logging.info("Creating work directory")
+    logging.info("Making output directory")
     working_dir = make_working_dir(p_file, override_folder)
-
-    logging.info("Generating unique hash for this run")
     pipe.working_dir = working_dir
     pipe.p_value_filename = p_file.split("/")[-1]
     pipe.hash = make_hash(args.input_folder_path, init_file,
@@ -83,8 +81,6 @@ if __name__ == "__main__":
 
     with cd(args.input_folder_path):
         pipe.read_input_files()
-
-    logging.info("Starting pipeline")
+    logging.info("Running pipeline...")
     with cd(pipe.working_dir):
         pipe.run()
-
