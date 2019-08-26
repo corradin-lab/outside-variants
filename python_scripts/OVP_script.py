@@ -53,9 +53,9 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     if args.debug_mode:
-        logging.basicConfig(level=logging.DEBUG)
+        logging.basicConfig(level=logging.DEBUG, stream=sys.stdout)
     else:
-        logging.basicConfig(level=logging.INFO)
+        logging.basicConfig(level=logging.INFO, stream=sys.stdout)
     logging.info("Starting outside variant pipeline analysis")
     file1 = args.case_gen
     file2 = args.control_gen
