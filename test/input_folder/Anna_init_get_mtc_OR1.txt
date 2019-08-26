@@ -1,0 +1,16 @@
+PIPE_TYPE	CC
+GS	6
+ITER	100
+TRIPS	1
+RSID	2
+SNP	4
+DELIM	SPACE
+OR_CALC	1
+PARTIAL	1
+PATH	/lab/corradin_dbgap/WTCCC2_all_controls_MS_UC/IMPUTE2_ALL/
+CHECK	0
+SAMPLE	MS_impute2_ALL_sample_out,ALL_controls_58C_NBS_WTC2_impute2_sample_out
+
+MTC_FILE_PATH	MTC_table_ALL_MS_impute2_chr16_ALL_controls_58C_NBS_WTC2_impute2_chr16_file
+MTC_THRESHOLD_COL_LABEL	threshold
+Z_THRESHOLD	99

@@ -1,0 +1,2 @@
+#!/bin/bash
+/lab/corradin_data/FOR_AN/OUTSIDE_VARIANT_PIPELINE/orchestrator_an.py run_fresh /lab/corradin_data/FOR_AN/trans_pipeline_april6/TRANS_IRF8_April6_all_files/input_folder_get_MTC Case_genotype_files_all_MS Control_genotype_files_all_MS test_pairs_IRF8 MS_TRANS_CC_init_normalOR_2018samples_NOcheck_April_transSNPs_IRF8 TRANS_IRF8_test_rerun -pt TRANS_CC --override --group /orchestrator_split --queue normal
