@@ -302,7 +302,7 @@ class Pipeline:
             self.stepwise_filter = StepwiseFilter(self.mtc_table, z_threshold)
         else:
             raise ValueError(
-                "Cannot find MTC table at designated path: " + mtc_file_path)
+                "Cannot find MTC table at designated path: " + mtc_file_path + f".Currently in path {os.getcwd()}")
         # else:
         #   self.mtc_table = Mtc_table
 
