@@ -131,13 +131,14 @@ class RsidTask(SimpleNamespace):
 		"""
 		#GWAS_rsid, outside_rsid = self.rsid_pair
 		rsid_pair = self.rsid_pair
-
-		return self.pipeline_script_with_args.format(GWAS_rsid=rsid_pair.GWAS_rsid,
+		rendered_command = self.pipeline_script_with_args.format(GWAS_rsid=rsid_pair.GWAS_rsid,
 													 outside_rsid=rsid_pair.outside_rsid,
 													 pairing_file_line=self.single_pairing.pairing_file_line,
 													 target_num_iterations=self.target_iter_str,
 													 job_num_iterations=iterations,
 													 partition=partition)
+
+		return rendered_command
 
 	def rendered_job_name(self, partition, iterations):
 		"""
@@ -233,7 +234,7 @@ class LsfJobRunner:
 		filled_outside_folder_struct = self.outside_folder_struct_template.format(GWAS_rsid=job.rsid_pair[0], outside_rsid=job.rsid_pair[1])
 		# save template for debugging using email
 		#-o {filled_outside_folder_struct}/myStdOut.out -e {filled_outside_folder_struct}/myStdErr.err
-		cmd = "bsub -q {queue_name} -o {filled_outside_folder_struct}/myStdOut.out -e {filled_outside_folder_struct}/myStdErr.err -g {job_group} -J {job_name} {job_command}".format(filled_outside_folder_struct=filled_outside_folder_struct,queue_name = self.queue_name, job_group=self.job_group, job_name=job.name, rsid_pair=job.rsid_pair, job_command=job.command)
+		cmd = "bsub -o /dev/null -e {filled_outside_folder_struct}/myStdErr.err -q {queue_name} -g {job_group} -J {job_name} {job_command}".format(filled_outside_folder_struct=filled_outside_folder_struct,queue_name = self.queue_name, job_group=self.job_group, job_name=job.name, rsid_pair=job.rsid_pair, job_command=job.command)
 
 		logging.info("RUN: %s" % cmd)
 		bsub_output = subprocess.check_output(cmd, shell=True)
@@ -401,6 +402,7 @@ def read_pairs(pair_file, cli_args):
 		for line in pairing_file:
 			clean_line = line.strip()
 			line_list = clean_line.split(" ")
+
 			if cli_args.pipeline_type == "TRANS_CC":
 				rsid_pair = RsidPair(line_list[0], line_list[3])
 			else:
@@ -450,7 +452,13 @@ class JobOrchestrator:
 		self.overall_start_time = time.time()
 
 		# Total number of iterations to do at each filter_step.
-		self.iteration_steps = [1000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000]#10_000_000# TODO: param
+		if args.max_iterations:
+			self.iteration_steps = list(np.logspace(3,args.max_iterations,num=args.max_iterations -3 + 1).astype(int))
+			print(self.iteration_steps)
+		else:
+			self.iteration_steps = [1000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000]
+
+		#10_000_000# TODO: param
 		self.highest_iteration = self.iteration_steps[0]
 		# Also see MAX_ITERATIONS_PER_JOB
 
@@ -825,6 +833,7 @@ def run_setup(args):
 def rerun_setup(rerun_folder):
 	with cd(rerun_folder):
 		orchestrator = JobOrchestrator.load_from_file()
+		orchestrator.iteration_steps = list(orchestrator.iteration_steps)
 		return rerun_folder, orchestrator
 
 
@@ -841,7 +850,7 @@ def main():
 	parser_run = subparsers.add_parser('run_fresh', help='activate run mode')
 
 	#get results
-	parser_get_results = subparsers.add_parser('get_results', help='activate run mode')
+	parser_get_results = subparsers.add_parser('get_results', help='activate get results mode')
 	parser_get_results.add_argument('rerun_folder', help='folder to rerun')
 
 	parser_run.add_argument('input_folder_path', help='absolute path of input folder')
@@ -854,6 +863,7 @@ def main():
 	parser_run.add_argument('--group', '-g', required=True, help= "job group to run this batch in. Use bgadd /[job_group_name] to add a job group. E.g: bgadd /MSlogreg" )
 	parser_run.add_argument('--pipeline_type', '-pt',  nargs='?', const='other', default='other', choices=["TRANS_CC", "other"], help="specify type of pipeline, needed if run TRANS_CC pipeline since the pairing file format is different")
 	parser_run.add_argument('--queue', nargs='?', const='all_corradin', default="all_corradin", choices=["all_corradin", "corradin", "normal"], help="which LSF queue to spawn jobs in")
+	parser_run.add_argument('--max_iterations', nargs='?',type=int, default=None)
 
 
 	args = parser.parse_args()

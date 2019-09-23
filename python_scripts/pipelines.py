@@ -9,8 +9,8 @@ import numpy as np
 from time import time, sleep
 # package to saving and loading dict
 import pickle
-
-from utils import atomic_write, timeit, open_file_or_string, possible_genotypes, randomizer, cd
+from tqdm.auto import tqdm
+from utils import atomic_write, timeit, open_file_or_string, possible_genotypes, randomizer, cd, swap_attr
 
 def process_cli_args(pipe, cli_args):
     # changing pipeline attributes based on command line arguments
@@ -18,7 +18,11 @@ def process_cli_args(pipe, cli_args):
     pipe.one_pair = cli_args.one_pair
 
     if pipe.one_pair:
-        GWAS_rsID, outside_rsID = pipe.one_pair.split("_")
+        GWAS_rsID, *outside_rsID = pipe.one_pair.split("_")
+
+        #for outside rsIDs in the form c6_pos1234:
+        outside_rsID = "_".join(outside_rsID)
+
         pipe.rsid_pair_dir = os.path.join(
             cli_args.exec_dir, "{}/{}".format(GWAS_rsID, outside_rsID))
 
@@ -119,6 +123,19 @@ class Pipeline:
             "NA": 15,
         }
 
+        SAMPLE_FILE_KEYWORD_DICT = {
+            "WITHIN_COL_DELIM": 0,
+            "RSID_STR_POS": 1,
+            "STATUS_COL_HEADER":2,
+            "CASE_INT":3,
+            "CONTROL_INT":4,
+        }
+
+        DELIM_KEYWORD_DICT = {
+            "DELIM_GEN":0,
+            "DELIM_PAIRING": 1
+        }
+
         GET_MTC_KEYWORD_DICT = {
             "MTC_FILE_PATH": 0,
             "MTC_THRESHOLD_COL_LABEL": 1,
@@ -131,11 +148,13 @@ class Pipeline:
 
         INT_KEYWORDS = set(["GS", "ITER", "TRIPS", "RSID", "SNP", "OR_CALC",
                             "PARTIAL", "CHECK", "Z_THRESHOLD", "MAKE_MTC"])
+        DELIM_KEYWORDS = set(["DELIM", "DELIM_GEN", "DELIM_PAIRING"])
 
         def keywords_to_lists(*keywords_dicts):
 
             # a list of values for each of the keyword dict
             init_lists = [[None] * len(d) for d in keywords_dicts]
+            logging.info(f"Reading init file at {os.getcwd()}/{init_file}")
             try:
                 f = open(init_file, "r")
             except FileNotFoundError:
@@ -152,7 +171,7 @@ class Pipeline:
 
                     if keyword in INT_KEYWORDS:
                         value = int(value)
-                    elif keyword == "DELIM":
+                    elif keyword in DELIM_KEYWORDS :
                         if value == "TAB":
                             value = "\t"
                         elif value == "SPACE":
@@ -226,8 +245,8 @@ class Pipeline:
 
         # the order that you pass the dictionaries in matters. It determines
         # the order of the lists you get out
-        main_pipeline_init_list, get_mtc_init_list, make_mtc_init_list = keywords_to_lists(
-            MAIN_PIPELINE_KEYWORD_DICT, GET_MTC_KEYWORD_DICT, MAKE_MTC_KEYWORD_DICT)
+        main_pipeline_init_list, get_mtc_init_list, make_mtc_init_list, delim_init_list = keywords_to_lists(
+            MAIN_PIPELINE_KEYWORD_DICT, GET_MTC_KEYWORD_DICT, MAKE_MTC_KEYWORD_DICT, DELIM_KEYWORD_DICT)
 
         pipe_type, gs, itr, typ, rsid, snp, delim, or_calc, skip, path, partial, check, sample, covs, cuts, NA = main_pipeline_init_list
 
@@ -267,7 +286,9 @@ class Pipeline:
         else:
             raise ValueError(
                 "Pipeline type not supported. Try 'CC', 'COMB', 'TRANS_CC', or 'TRANS_COMB'.")
+
         logging.debug("before processing cli args")
+
         pipe = process_cli_args(pipe, cli_args)
 
         # store in global variable for stepwise filter
@@ -291,6 +312,8 @@ class Pipeline:
         else:
             raise ValueError(f"Need to either specify arguments: {list(GET_MTC_KEYWORD_DICT.keys())} or {list(MAKE_MTC_KEYWORD_DICT.keys())} in init file {init_file}")
 
+        #process delimiter args
+        pipe.gen_delim, pipe.pairing_delim = delim_init_list
         return pipe
 
     def get_mtc_table_and_stepwise_filter(self, mtc_file_path, mtc_threshold_col_label, z_threshold):
@@ -384,6 +407,7 @@ class Pipeline:
         """
         returns item in the 'col_num'th column in tab-delimited line (1 indexed)
         """
+
         copy_line = line.strip()
         for i in range(col_num - 1):
             tab_index = copy_line.index(self.delim)
@@ -466,7 +490,6 @@ class Pipeline:
             for line in pairing_file:
                 GWAS_rsID = self.column_getter(line, 1)
                 outside_rsID = self.column_getter(line, 2)
-
                 self.GWAS_set.add(GWAS_rsID)
                 self.outside_set.add(outside_rsID)
 
@@ -1046,49 +1069,49 @@ class Pipeline:
             control_count_map = self.single_rsid_combo(
                 GWAS_rsid, rand_control, poss_geno, self.control_GWAS)
 
-            def generate_test_data(num_perm, file_name):
-                logging.debug("in generate_test_data")
-                labels = ["GWAS_rsid", "outside_rsid", "case_alleles", "control_alleles", "rand_case",
-                          "rand_control", "case_count_map", "control_count_map", "odds_ratio_dict"]
-                with open(file_name, "a+") as f:
-                    f.write("\t".join(labels))
-                    f.write("\n")
-                    for i in range(num_perm):
-                        logging.debug("generating sample ", i)
-                        rand_case, rand_control = randomizer(
-                            case_alleles, control_alleles)
-                        case_count_map = self.single_rsid_combo(
-                            GWAS_rsid, rand_case, poss_geno, self.case_GWAS)
-                        control_count_map = self.single_rsid_combo(
-                            GWAS_rsid, rand_control, poss_geno, self.control_GWAS)
-                        odds_ratio_dict = self.log_odds_calculator(
-                            case_count_map, control_count_map)
+            # def generate_test_data(num_perm, file_name):
+            #     logging.debug("in generate_test_data")
+            #     labels = ["GWAS_rsid", "outside_rsid", "case_alleles", "control_alleles", "rand_case",
+            #               "rand_control", "case_count_map", "control_count_map", "odds_ratio_dict"]
+            #     with open(file_name, "a+") as f:
+            #         f.write("\t".join(labels))
+            #         f.write("\n")
+            #         for i in range(num_perm):
+            #             logging.debug("generating sample ", i)
+            #             rand_case, rand_control = randomizer(
+            #                 case_alleles, control_alleles)
+            #             case_count_map = self.single_rsid_combo(
+            #                 GWAS_rsid, rand_case, poss_geno, self.case_GWAS)
+            #             control_count_map = self.single_rsid_combo(
+            #                 GWAS_rsid, rand_control, poss_geno, self.control_GWAS)
+            #             odds_ratio_dict = self.log_odds_calculator(
+            #                 case_count_map, control_count_map)
 
-                        write_list = [GWAS_rsid, outside_rsid, case_alleles, control_alleles,
-                                      rand_case, rand_control, case_count_map, control_count_map, odds_ratio_dict]
-                        write_list = [str(element) for element in write_list]
+            #             write_list = [GWAS_rsid, outside_rsid, case_alleles, control_alleles,
+            #                           rand_case, rand_control, case_count_map, control_count_map, odds_ratio_dict]
+            #             write_list = [str(element) for element in write_list]
 
-                        f.write("\t".join(write_list))
-                        f.write("\n")
+            #             f.write("\t".join(write_list))
+            #             f.write("\n")
 
-                logging.debug("finished writing {} samples".format(num_perm))
+            #     logging.debug("finished writing {} samples".format(num_perm))
 
-            def generate_test_dicts(folder_name):
-                odds_ratio_dict = self.log_odds_calculator(
-                    case_count_map, control_count_map)
+            # def generate_test_dicts(folder_name):
+            #     odds_ratio_dict = self.log_odds_calculator(
+            #         case_count_map, control_count_map)
 
-                labels = ["case_alleles", "control_alleles", "rand_case", "rand_control",
-                          "case_count_map", "control_count_map", "odds_ratio_dict", ]
+            #     labels = ["case_alleles", "control_alleles", "rand_case", "rand_control",
+            #               "case_count_map", "control_count_map", "odds_ratio_dict", ]
 
-                save_dicts_list = [case_alleles, control_alleles, rand_case,
-                                   rand_control, case_count_map, control_count_map, odds_ratio_dict]
+            #     save_dicts_list = [case_alleles, control_alleles, rand_case,
+            #                        rand_control, case_count_map, control_count_map, odds_ratio_dict]
 
-                # save GO specific dicts to separate folders
-                self.try_make_folder(folder_name)
-                for dict_name, dict_to_save in zip(labels, save_dicts_list):
-                    dict_file_name = "{}_{}".format(folder_name, dict_name)
-                    self.save_dict(dict_to_save, folder_name, dict_file_name)
-                logging.debug("generate_test_dicts at ", folder_name)
+            #     # save GO specific dicts to separate folders
+            #     self.try_make_folder(folder_name)
+            #     for dict_name, dict_to_save in zip(labels, save_dicts_list):
+            #         dict_file_name = "{}_{}".format(folder_name, dict_name)
+            #         self.save_dict(dict_to_save, folder_name, dict_file_name)
+            #     logging.debug("generate_test_dicts at ", folder_name)
 
             # testing
             #----
@@ -1469,13 +1492,13 @@ class Pipeline:
             self.check_format()
 
         logging.info("READING PAIRING FILE")
-        self.pairing_maker()
+        with swap_attr(self, {"delim":"pairing_delim"}):
+            self.pairing_maker()
         if not self.one_pair:
             self.original_num_pairs = pd.read_csv(
                 self.pair_filename, header=None, sep=" ").shape[0]
         logging.info("READING SAMPLE FILE(S) (if found)")
         self.read_sample_files()
-        logging.info("READING GENOTYPE FILE(S)")
 
     # TODO: remove this function from run functions and call it from main
     # program
@@ -1499,8 +1522,12 @@ class Pipeline:
             logging.info("loaded G_O_dict from file")
         except FileNotFoundError:
             logging.info(f"File for G_O_dict not found in current directory: {os.getcwd()}, creating from scratch")
+
             with cd(self.input_folder_path):
-                self.G_O_dict_maker()
+                logging.info("READING GENOTYPE FILE(S)")
+                #swap out delimiter attribute to read genetic file, which might have a different delimiter than sample file or pairing file
+                with swap_attr(self, {"delim":"gen_delim"}):
+                    self.G_O_dict_maker()
             # # catching concurrent I/O error. If fail, sleep and retry
             # while True:
             #   try:
@@ -1636,7 +1663,7 @@ class Pipeline:
                 ["GWAS_rsid", "outside_rsid"]].drop_duplicates()
 
             filtered_snp_pairs.to_csv("Filtered_SNP_pairs_{}_file".format(
-                self.p_value_filename), header=False, index=False, sep=' ')
+                self.p_value_filename), header=False, index=False, sep=self.pairing_delim)
 
             logging.info(
                 "CREATED MTC TABLE. NOW YOU CAN RUN THE SCRIPT WITH INIT FILE THAT GETS MTC TABLE YOU JUST CREATED")
@@ -1811,7 +1838,7 @@ class Combined_Pipeline(Pipeline):
         self.geno_filename = path + geno
         self.sample_filename = sample
 
-        self.case_keyword = "case"
+        self.case_keyword = "status_processed" #"case"
         self.exclude_keyword = "exclude"
 
     def check_format(self):
@@ -1922,6 +1949,7 @@ class Combined_Pipeline(Pipeline):
 
         found_GWAS = set()
         found_outside = set()
+        found_but_wrong_format = set()
 
         case_GWAS_map = {}
         case_outside_map = {}
@@ -1930,7 +1958,7 @@ class Combined_Pipeline(Pipeline):
         control_outside_map = {}
 
         line_num = 1
-        for line in file:
+        for i,line in tqdm(enumerate(file)):
             rsid = self.column_getter(line, self.rsid_col)
             if rsid in self.GWAS_set or rsid in self.outside_set:
                 pos_1 = self.column_getter(line, self.snp_col)
@@ -1940,6 +1968,7 @@ class Combined_Pipeline(Pipeline):
                 else:
                     pos_2 = self.column_getter(line, self.snp_col + 1)
                 if len(pos_1) > 1 or len(pos_2) > 1:
+                    found_but_wrong_format.add(rsid)
                     continue
 
                 poss_geno = possible_genotypes(pos_1, pos_2)
@@ -1989,24 +2018,40 @@ class Combined_Pipeline(Pipeline):
                     case_outside_map[rsid] = case_allele_list, poss_geno
                     control_outside_map[rsid] = control_allele_list, poss_geno
             line_num += 1
+            if found_GWAS == self.GWAS_set and found_outside == self.outside_set:
+                break
         file.close()
 
         logging.info(str(len(found_GWAS)) + " out of " + str(len(self.GWAS_set)
                                                              ) + " GWAS rsIDs found in " + self.geno_filename + ".")
-        not_found_GWAS = self.GWAS_set.difference(found_GWAS)
+        found_but_wrong_format_GWAS = found_but_wrong_format & self.GWAS_set
+
+        not_found_GWAS = (self.GWAS_set.difference(found_GWAS)) - found_but_wrong_format_GWAS
+
         if len(not_found_GWAS) > 0:
             logging.info("WARNING: The following GWAS rsIDs are found in the pairing file, but not " +
                          self.geno_filename + ".\n" + str(not_found_GWAS))
-            if not_found_GWAS == self.GWAS_set:
-                return None, None, None, None
+
+        if len(found_but_wrong_format_GWAS) > 0:
+            logging.info(f"WARNING: The following GWAS rsIDs are found but has more than two alleles {found_but_wrong_format_GWAS}")
+
+        if (not_found_GWAS | found_but_wrong_format_GWAS)== self.GWAS_set:
+            return None, None, None, None
 
         logging.info(str(len(found_outside)) + " out of " + str(len(self.outside_set)
                                                                 ) + " outside rsIDs found in " + self.geno_filename + ".")
-        not_found_outside = self.outside_set.difference(found_outside)
-        if len(not_found_outside):
+        found_but_wrong_format_outside = found_but_wrong_format & self.outside_set
+
+        not_found_outside = self.outside_set.difference(found_outside) - found_but_wrong_format_outside
+
+        if len(not_found_outside) > 0:
             logging.info("WARNING: The following outside rsIDs are found in the pairing file, but not " +
                          self.geno_filename + ".\n" + str(not_found_outside))
-            if not_found_outside == self.outside_set:
+
+        if found_but_wrong_format_outside:
+            logging.info(f"WARNING: The following outside rsIDs are found but has more than 2 alleles {found_but_wrong_format_outside}")
+
+        if (not_found_outside | found_but_wrong_format_outside) == self.outside_set:
                 return None, None, None, None
 
         return case_GWAS_map, case_outside_map, control_GWAS_map, control_outside_map
