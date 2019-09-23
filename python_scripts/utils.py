@@ -6,7 +6,7 @@ import logging
 from hashlib import sha256
 from time import time, sleep
 import numpy as np
-
+import inspect
 
 
 if sys.version_info >= (3, 3):
@@ -51,6 +51,11 @@ def atomic_write(filepath, binary=False, fsync=False):
         except (IOError, OSError):
             pass
 
+def applykwargs(func, mapping_dict):
+    @wraps(func)
+    def wrapped(self, *args, **kwargs):
+        pass
+    pass
 
 def timeit(func, name=""):
     """Summary
@@ -126,6 +131,20 @@ def cd(newdir):
     finally:
         os.chdir(prevdir)
 
+@contextmanager
+def swap_attr(obj, attr_swap_dict):
+    original_attrs = {old_attr_name: obj.__dict__[old_attr_name] for old_attr_name in attr_swap_dict.keys()}
+
+    for old_attr, new_attr in attr_swap_dict.items():
+        old_attr_val = obj.__dict__[old_attr]
+        if obj.__dict__[new_attr] is not None:
+            obj.__dict__[old_attr] = obj.__dict__[new_attr]
+            print(fr"changed attr {old_attr} of {obj.__class__} from {old_attr_val} to {obj.__dict__[new_attr]}.")
+    try:
+        yield
+    finally:
+        for attr_name, attr in original_attrs.items():
+            obj.__dict__[attr_name] = attr
 
 def make_working_dir(p_file, override_folder):
     # make working directory, if already exist, raise error
