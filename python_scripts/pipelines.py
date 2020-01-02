@@ -12,6 +12,8 @@ import pickle
 from tqdm.auto import tqdm
 from utils import atomic_write, timeit, open_file_or_string, possible_genotypes, randomizer, cd, swap_attr
 
+logging = logging.getLogger('OVP')
+
 def process_cli_args(pipe, cli_args):
     # changing pipeline attributes based on command line arguments
 
@@ -29,6 +31,7 @@ def process_cli_args(pipe, cli_args):
     abs_input_folder_path = os.path.abspath(cli_args.input_folder_path)
 
     # cli_args.input_folder_path
+    pipe.args_input_folder_path = abs_input_folder_path
     pipe.input_folder_path = ("/").join(abs_input_folder_path.split("/")[:-1])
     logging.debug(f"absolute input folder path: {pipe.input_folder_path}")
     if cli_args.iter:
@@ -124,16 +127,16 @@ class Pipeline:
         }
 
         SAMPLE_FILE_KEYWORD_DICT = {
-            "WITHIN_COL_DELIM": 0,
-            "RSID_STR_POS": 1,
-            "STATUS_COL_HEADER":2,
-            "CASE_INT":3,
-            "CONTROL_INT":4,
+            "LINES_TO_SKIP": 0,
+            "STATUS_COL_NAME":1,
+            "CASE_INT":2,
+            "CONTROL_INT":3,
         }
 
         DELIM_KEYWORD_DICT = {
             "DELIM_GEN":0,
-            "DELIM_PAIRING": 1
+            "DELIM_PAIRING": 1,
+            "DELIM_SAMPLE":2
         }
 
         GET_MTC_KEYWORD_DICT = {
@@ -148,7 +151,7 @@ class Pipeline:
 
         INT_KEYWORDS = set(["GS", "ITER", "TRIPS", "RSID", "SNP", "OR_CALC",
                             "PARTIAL", "CHECK", "Z_THRESHOLD", "MAKE_MTC"])
-        DELIM_KEYWORDS = set(["DELIM", "DELIM_GEN", "DELIM_PAIRING"])
+        DELIM_KEYWORDS = DELIM_KEYWORD_DICT.keys()
 
         def keywords_to_lists(*keywords_dicts):
 
@@ -313,7 +316,7 @@ class Pipeline:
             raise ValueError(f"Need to either specify arguments: {list(GET_MTC_KEYWORD_DICT.keys())} or {list(MAKE_MTC_KEYWORD_DICT.keys())} in init file {init_file}")
 
         #process delimiter args
-        pipe.gen_delim, pipe.pairing_delim = delim_init_list
+        pipe.gen_delim, pipe.pairing_delim, pipe.sample_delim = delim_init_list
         return pipe
 
     def get_mtc_table_and_stepwise_filter(self, mtc_file_path, mtc_threshold_col_label, z_threshold):
@@ -920,19 +923,22 @@ class Pipeline:
         except:
             logging.debug("{} folder already exist".format(folder_name_string))
 
-    def load_dict(self, filename):
+    def load_dict(self, filename, load_dir=None):
         # for one pair (using the orchestrator), we use the common rsid pair
         # dir to save the dicts for multiple filtering stages.
         if self.one_pair:
             logging.debug("rsid_pair_dir: ", self.rsid_pair_dir)
-            load_dir = self.rsid_pair_dir
+            load_dir_default = self.rsid_pair_dir#self.rsid_pair_dir
         else:
             # for multiple pairs, (not using the orchestrator), we use the
             # working directory
-            load_dir = os.getcwd()
+            load_dir_default = os.getcwd()
+
+        if load_dir:
+            load_dir_default = load_dir
 
         dict_filename = "objs/" + filename + ".pickle"
-        with cd(load_dir):
+        with cd(load_dir_default):
             logging.debug("looking for file: {} in directory: {}".format(
                 dict_filename, load_dir))
             with open(dict_filename, "rb") as f:
@@ -1498,15 +1504,17 @@ class Pipeline:
             self.original_num_pairs = pd.read_csv(
                 self.pair_filename, header=None, sep=" ").shape[0]
         logging.info("READING SAMPLE FILE(S) (if found)")
-        self.read_sample_files()
+
+        with swap_attr(self, {"delim":"sample_delim"}):
+            self.read_sample_files()
 
     # TODO: remove this function from run functions and call it from main
     # program
     @timeit
     def run_pre_random(self):
         start_time = time()
-        case_control_dict_filename = "case_control_dict_{}".format(self.hash)
-
+        #case_control_dict_filename = "case_control_dict_{}".format(self.hash)
+        case_control_dict_filename = "case_control_dict"
         # try to load file first, else create from scratch and then save for
         # next time
 
@@ -1514,10 +1522,39 @@ class Pipeline:
         # loading data_needed from disk from a previous run before function
         # execution
         try:
-            case_control_dict = self.load_dict(case_control_dict_filename)
+            # case_control_dict = self.load_dict(case_control_dict_filename, load_dir=self.args_input_folder_path)
+            try:
+                # try load single pair dict
+                case_control_dict = self.load_dict(case_control_dict_filename)
+                found_single_pair_dict = True
+                logging.info("Loaded single pair dict in rsid folder path")
+            except FileNotFoundError:
+                logging.info(f"Did not find single pair dict, loading entire dict")
+                case_control_dict = self.load_dict(case_control_dict_filename, load_dir=self.args_input_folder_path)
+                found_single_pair_dict = False
+
             self.case_GWAS, self.case_outside = case_control_dict["case"]
             self.control_GWAS, self.control_outside = case_control_dict[
                 "control"]
+
+            self.case_GWAS = {key: self.case_GWAS[key] for key in self.GWAS_set}
+            self.case_outside = {key: self.case_outside[key] for key in self.outside_set}
+
+
+            self.control_GWAS, self.control_outside = case_control_dict[
+                "control"]
+
+            self.control_GWAS = {key: self.control_GWAS[key] for key in self.GWAS_set}
+            self.control_outside = {key: self.control_outside[key] for key in self.outside_set}
+
+            #if did not find single pair dict but found all pairs dict, then just save what's relevant for this pair in the pair directory
+            if not found_single_pair_dict:
+                logging.info("Outputting single pair dict in rsid folder path")
+                case_control_dict = {"case": (self.case_GWAS, self.case_outside),
+                                 "control": (self.control_GWAS, self.control_outside)}
+
+                self.save_dict(case_control_dict, self.working_dir,
+           case_control_dict_filename)
 
             logging.info("loaded G_O_dict from file")
         except FileNotFoundError:
@@ -1527,7 +1564,10 @@ class Pipeline:
                 logging.info("READING GENOTYPE FILE(S)")
                 #swap out delimiter attribute to read genetic file, which might have a different delimiter than sample file or pairing file
                 with swap_attr(self, {"delim":"gen_delim"}):
+
                     self.G_O_dict_maker()
+
+
             # # catching concurrent I/O error. If fail, sleep and retry
             # while True:
             #   try:
@@ -1551,26 +1591,28 @@ class Pipeline:
 
         self.GWAS_OR_calc()
 
-        case_combined_dict_filename = "case_combined_dict_{}".format(self.hash)
-        control_combined_dict_filename = "control_combined_dict_{}".format(
-            self.hash)
+        # case_combined_dict_filename = "case_combined_dict_{}".format(self.hash)
+        # control_combined_dict_filename = "control_combined_dict_{}".format(
+        #     self.hash)
 
-        # TODO: turn this into a decorator: dec(function, *data_needed)  to try
-        # loading data_needed from disk from a previous run before function
-        # execution
-        try:
-            self.case_combined = self.load_dict(case_combined_dict_filename)
-            self.control_combined = self.load_dict(
-                control_combined_dict_filename)
-            logging.info("Loaded case_combined and control_combined from file")
-        except FileNotFoundError:
-            logging.info(
-                "File for case_combined and/or control_combined not found, creating and saving both dicts")
-            self.combine_dicts()
-            self.save_dict(self.case_combined, self.working_dir,
-                           case_combined_dict_filename)
-            self.save_dict(self.control_combined, self.working_dir,
-                           control_combined_dict_filename)
+        # # TODO: turn this into a decorator: dec(function, *data_needed)  to try
+        # # loading data_needed from disk from a previous run before function
+        # # execution
+        # try:
+        #     self.case_combined = self.load_dict(case_combined_dict_filename)
+        #     self.control_combined = self.load_dict(
+        #         control_combined_dict_filename)
+        #     logging.info("Loaded case_combined and control_combined from file")
+        # except FileNotFoundError:
+        #     logging.info(
+        #         "File for case_combined and/or control_combined not found, creating and saving both dicts")
+        #     self.combine_dicts()
+        #     self.save_dict(self.case_combined, self.working_dir,
+        #                    case_combined_dict_filename)
+        #     self.save_dict(self.control_combined, self.working_dir,
+        #                    control_combined_dict_filename)
+
+        self.combine_dicts()
 
         end_time = time()
         exec_time = end_time - start_time
@@ -1634,36 +1676,45 @@ class Pipeline:
     def run_create_mtc_table(self, num_case_impute_filtering, num_control_impute_filtering, case_gen, control_gen):
         def run_func():
             # makes self.case_combined and self.control_combined
-            self.run_pre_random()
-            all_snp_pairs_mtc_df, found_pairs, after_filter_1, after_filter_2 = MtcTable.make_mtc_table_from_dict(
-                self.case_combined, self.control_combined, num_case_impute_filtering, num_control_impute_filtering)
-            all_snp_pairs_mtc_df.to_csv("MTC_table_{}".format(
-                self.p_value_filename), index=False, sep='\t')
-            after_filter_1 = after_filter_1.sort_values(
-                by=["GWAS_rsid", "outside_rsid"])
-            after_filter_2 = after_filter_2.sort_values(
-                by=["GWAS_rsid", "outside_rsid"])
+            make_mtc_output_folder = "input_folder_get_mtc"
+            os.makedirs(make_mtc_output_folder)
+            with cd(make_mtc_output_folder):
+                self.run_pre_random()
 
-            logging.info("CREATING MTC TABLE")
-            with atomic_write("make_mtc_report") as f:
-                f.write("Original number of SNP pairs: {} \n".format(
-                    self.original_num_pairs))
-                f.write(
-                    "Number of pairs found in genetic files: {} \n".format(found_pairs))
-                f.write("Number of pairs after Filter 1: {} \n".format(
-                    after_filter_1[["GWAS_rsid", "outside_rsid"]].drop_duplicates().shape[0]))
-                f.write("Number of pairs after Filter 2: {} \n".format(
-                    after_filter_2[["GWAS_rsid", "outside_rsid"]].drop_duplicates().shape[0]))
-            after_filter_1.to_csv("After_filter_1_{}".format(
-                self.p_value_filename), index=False, sep=' ')
-            after_filter_2.to_csv("After_filter_2_{}".format(
-                self.p_value_filename), index=False, sep=' ')
+                self.filter_df.to_csv(f"filter_df_found_not_found_{self.p_value_filename}", sep="\t",index=False)
 
-            filtered_snp_pairs = after_filter_2[
-                ["GWAS_rsid", "outside_rsid"]].drop_duplicates()
+                all_snp_pairs_mtc_df, found_pairs, after_filter_1, after_filter_2, filtered_after_1, filtered_after_2 = MtcTable.make_mtc_table_from_dict(
+                    self.case_combined, self.control_combined, num_case_impute_filtering, num_control_impute_filtering)
+                all_snp_pairs_mtc_df.to_csv("MTC_table_{}".format(
+                    self.p_value_filename), index=False, sep='\t')
+                after_filter_1 = after_filter_1.sort_values(
+                    by=["GWAS_rsid", "outside_rsid"])
+                after_filter_2 = after_filter_2.sort_values(
+                    by=["GWAS_rsid", "outside_rsid"])
 
-            filtered_snp_pairs.to_csv("Filtered_SNP_pairs_{}_file".format(
-                self.p_value_filename), header=False, index=False, sep=self.pairing_delim)
+                logging.info("CREATING MTC TABLE")
+                with atomic_write("make_mtc_report") as f:
+                    f.write("Original number of SNP pairs: {} \n".format(
+                        self.original_num_pairs))
+                    f.write(
+                        "Number of pairs found in genetic files: {} \n".format(found_pairs))
+                    f.write("Number of pairs after Filter 1: {} \n".format(
+                        after_filter_1[["GWAS_rsid", "outside_rsid"]].drop_duplicates().shape[0]))
+                    f.write("Number of pairs after Filter 2: {} \n".format(
+                        after_filter_2[["GWAS_rsid", "outside_rsid"]].drop_duplicates().shape[0]))
+                after_filter_1.to_csv("After_filter_1_{}".format(
+                    self.p_value_filename), index=False, sep=' ')
+                after_filter_2.to_csv("After_filter_2_{}".format(
+                    self.p_value_filename), index=False, sep=' ')
+
+                filtered_snp_pairs = after_filter_2[
+                    ["GWAS_rsid", "outside_rsid"]].drop_duplicates()
+
+                filtered_snp_pairs.to_csv("Filtered_SNP_pairs_{}_file".format(
+                    self.p_value_filename), header=False, index=False, sep=self.pairing_delim)
+
+                filtered_after_1.to_csv(f"Filtered_OUT_AFTER_FILTER1_{self.p_value_filename}_file",index=False, sep="\t")
+                filtered_after_2.to_csv(f"Filtered_OUT_AFTER_FILTER2_{self.p_value_filename}_file",index=False, sep="\t")
 
             logging.info(
                 "CREATED MTC TABLE. NOW YOU CAN RUN THE SCRIPT WITH INIT FILE THAT GETS MTC TABLE YOU JUST CREATED")
@@ -1765,7 +1816,8 @@ class Case_Control_Pipeline(Pipeline):
         outside_map = {}
 
         line_num = 1
-        for line in file:
+
+        for i,line in tqdm(enumerate(file)):
             rsid = self.column_getter(line, self.rsid_col)
             if rsid in self.GWAS_set or rsid in self.outside_set:
                 pos_1 = self.column_getter(line, self.snp_col)
@@ -1827,6 +1879,12 @@ class Case_Control_Pipeline(Pipeline):
                          filename + ".\n" + str(not_found_outside))
             if not_found_outside == self.outside_set:
                 return None, None
+
+        df_data = [*zip(not_found_GWAS, ["not_found"] * len(not_found_GWAS), ["GWAS"]* len(not_found_GWAS)),
+            *zip(not_found_outside, ["not_found"] * len(not_found_outside), ["outside"]* len(not_found_outside)),]
+
+        self.filter_df = pd.DataFrame(df_data, columns=["rsID", "reason_for_filtering", "SNP_type"])
+
         return GWAS_map, outside_map
 
 
@@ -1838,8 +1896,8 @@ class Combined_Pipeline(Pipeline):
         self.geno_filename = path + geno
         self.sample_filename = sample
 
-        self.case_keyword = "status_processed" #"case"
-        self.exclude_keyword = "exclude"
+        self.case_keyword = "case"
+        self.exclude_keyword = "missing"
 
     def check_format(self):
         """
@@ -1859,6 +1917,7 @@ class Combined_Pipeline(Pipeline):
 
         # assumes first line contains header information
         first_line = f.readline()
+        first_line = first_line.strip()
         index_to_find = self.index_getter(first_line, self.case_keyword)
         exclude_index = self.index_getter(first_line, self.exclude_keyword)
         check_exclude = True if exclude_index > -1 else False
@@ -1897,21 +1956,21 @@ class Combined_Pipeline(Pipeline):
         f.close()
 
         if num_excluded == 0:
-            logging.debug("ALL SAMPLES INCLUDED")
+            logging.info("ALL SAMPLES INCLUDED")
         else:
-            logging.debug(str(num_excluded) + " SAMPLES EXCLUDED")
+            logging.info(str(num_excluded) + " SAMPLES EXCLUDED")
 
         control_int = min(num_set)
 
         num_control = cc_count[control_int]
         num_cases = cc_count[control_int + 1]
-
-        logging.debug(str(num_control) + " CONTROLS INCLUDED")
-        logging.debug(str(num_cases) + " CASES INCLUDED")
+        logging.info(str(num_control) + " CONTROLS INCLUDED")
+        logging.info(str(num_cases) + " CASES INCLUDED")
 
         self.cc_dict = out_dict
         self.control_int = control_int
         return self.cc_dict, self.control_int
+        #return num_control, num_cases
 
     def cc_splitter(self, allele_list):
         """
@@ -2051,8 +2110,16 @@ class Combined_Pipeline(Pipeline):
         if found_but_wrong_format_outside:
             logging.info(f"WARNING: The following outside rsIDs are found but has more than 2 alleles {found_but_wrong_format_outside}")
 
+
         if (not_found_outside | found_but_wrong_format_outside) == self.outside_set:
                 return None, None, None, None
+
+        df_data = [*zip(not_found_GWAS, ["not_found"] * len(not_found_GWAS), ["GWAS"]* len(not_found_GWAS)),
+        *zip(found_but_wrong_format_GWAS, ["found_but_wrong_format"] * len(found_but_wrong_format_GWAS), ["GWAS"]* len(found_but_wrong_format_GWAS)),
+        *zip(not_found_outside, ["not_found"] * len(not_found_outside), ["outside"]* len(not_found_outside)),
+        *zip(found_but_wrong_format_outside, ["found_but_wrong_format"] * len(found_but_wrong_format_outside), ["outside"]* len(found_but_wrong_format_outside))]
+        #breakpoint()
+        self.filter_df = pd.DataFrame(df_data, columns=["rsID", "reason_for_filtering", "SNP_type"])
 
         return case_GWAS_map, case_outside_map, control_GWAS_map, control_outside_map
 

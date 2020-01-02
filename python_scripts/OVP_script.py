@@ -22,7 +22,29 @@ from utils import cd, make_working_dir, remove_folder, make_hash
 from pipelines import Pipeline
 
 # TODO: turn this into a method of args object
+def make_logger(*args, override=False):
+    identifier = ("_").join(args)
 
+    import logging
+    if override:
+        remove_folder(f'OVP_{identifier}.log')
+
+    logger = logging.getLogger('OVP')
+    logger.setLevel(logging.DEBUG)
+    # create file handler which logs even debug messages
+    fh = logging.FileHandler(f'OVP_{identifier}.log')
+    fh.setLevel(logging.DEBUG)
+    # create console handler with a higher log level
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.ERROR)
+    # create formatter and add it to the handlers
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    ch.setFormatter(formatter)
+    fh.setFormatter(formatter)
+    # add the handlers to logger
+    logger.addHandler(ch)
+    logger.addHandler(fh)
+    return logger
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='outside var pipeline')
@@ -51,11 +73,18 @@ if __name__ == "__main__":
 
     parser.add_argument('--control', type=int, default=None, help='number of total control. Usually will get this number from case sample file. Use for pipelines that do not specify sample files. WARNING: if both this flag and the sample case is present, this will cause an error and terminate the program.')
 
+
+
     args = parser.parse_args()
+
     if args.debug_mode:
         logging.basicConfig(level=logging.DEBUG, stream=sys.stdout)
     else:
         logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+
+    logging = make_logger(args.unique_identifier, override =args.override)
+
+    logging.info(f"Command executed: {' '.join(sys.argv)}")
     logging.info("Starting outside variant pipeline analysis")
     file1 = args.case_gen
     file2 = args.control_gen
@@ -63,6 +92,7 @@ if __name__ == "__main__":
     init_file = args.init_file
     p_file = args.output_folder
     override_folder = args.override
+
 
 
     odds_file = ""
