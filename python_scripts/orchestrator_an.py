@@ -55,12 +55,12 @@ import time
 import numpy as np
 from functools import wraps
 from toolz import partial
-from gooey import Gooey
+#from gooey import Gooey
 from num2words import num2words
 
 
 MAX_JOB_RETRY_COUNT = 10
-MAX_ITERATIONS_PER_JOB = 10_000_000
+MAX_ITERATIONS_PER_JOB = 100_000
 RsidPair = namedtuple("RsidPair",["GWAS_rsid", "outside_rsid"])
 SinglePairing = namedtuple("SinglePairing",["pairing_file_line", "rsid_pair_tuple"])
 
@@ -251,7 +251,7 @@ class LsfJobRunner:
 		"""
 		# try:
 		bjobs_cmd = ["bjobs", jobid]
-		logging.debug("\tbjobs command: '%s'" % bjobs_cmd)
+		logging.info("\tbjobs command: '%s'" % bjobs_cmd)
 		p = Popen(bjobs_cmd, stdout=PIPE, stderr=PIPE)
 		bjobs_stdout, bjobs_stderr = p.communicate()
 		#bjobs_stdout = (stdout)
@@ -263,9 +263,9 @@ class LsfJobRunner:
 			# Found in bjobs output
 			#lines = str(bjobs_stdout).split("\\n")
 			lines = bjobs_stdout.splitlines()
-			logging.debug("lines: %s" %  lines)
-			logging.debug("len lines: %d" %  len(lines))
-			if len(lines)==2:
+			logging.info("lines: %s" %  lines)
+			logging.info("len lines: %d" %  len(lines))
+			if len(lines)>=2:
 				# JOBID   USER    STAT  QUEUE      FROM_HOST   EXEC_HOST   JOB_NAME   SUBMIT_TIME
 				# 5612457 andy    RUN   normal     tak4        it-c03b05   sleep 1000 Jan  8 15:46
 				statline = str(lines[1])
@@ -315,7 +315,7 @@ class LsfJobRunner:
 						return "failed"
 
 			except FileNotFoundError:
-				logging.debug("\tin except clause b/c FileNotFoundError exception in check_job_status_function, returning failed".format(
+				logging.info("\tin except clause b/c FileNotFoundError exception in check_job_status_function, returning failed".format(
 					os.getcwd()))
 				return "failed"
 		# except FileNotFoundError:
@@ -402,6 +402,7 @@ def read_pairs(pair_file, cli_args):
 		for line in pairing_file:
 			clean_line = line.strip()
 			line_list = clean_line.split(" ")
+			#CANNOT HANDLE TAB
 
 			if cli_args.pipeline_type == "TRANS_CC":
 				rsid_pair = RsidPair(line_list[0], line_list[3])
@@ -409,7 +410,6 @@ def read_pairs(pair_file, cli_args):
 				rsid_pair = RsidPair(*line_list)
 
 			single_pairing = SinglePairing(clean_line, rsid_pair)
-
 			rsid_pairs_list.append(rsid_pair)
 			single_pairings_list.append(single_pairing)
 
@@ -452,11 +452,9 @@ class JobOrchestrator:
 		self.overall_start_time = time.time()
 
 		# Total number of iterations to do at each filter_step.
-		if args.max_iterations:
-			self.iteration_steps = list(np.logspace(3,args.max_iterations,num=args.max_iterations -3 + 1).astype(int))
-			print(self.iteration_steps)
-		else:
-			self.iteration_steps = [1000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000]
+
+		self.iteration_steps = list(np.logspace(3,args.max_iterations,num=args.max_iterations -3 + 1).astype(int))
+		print(self.iteration_steps)
 
 		#10_000_000# TODO: param
 		self.highest_iteration = self.iteration_steps[0]
@@ -802,14 +800,6 @@ def run_setup(args):
 	if args.override:
 		pipeline_args.append("--override")
 
-
-	#saving the run command for future reference
-	with open(f"run_{args.unique_identifier}.sh", "w+") as f:
-	   f.write("#!/bin/bash")
-	   f.write("\n")
-	   f.write(" ".join(sys.argv))
-	   f.write("\n")
-
 	# threshold to calculate confidence intervals
 	z_threshold = 99
 
@@ -824,6 +814,13 @@ def run_setup(args):
 		raise FileExistsError(f"Found folder of the same name: {run_folder_name}, either choose another name or delete this folder. If you want to rerun, change to rerun mode")
 
 	with cd(run_folder_name):
+		#saving the run command for future reference
+		with open(f"run_{args.unique_identifier}.sh", "w+") as f:
+		   f.write("#!/bin/bash")
+		   f.write("\n")
+		   f.write(" ".join(sys.argv))
+		   f.write("\n")
+
 		orchestrator = JobOrchestrator(z_threshold, single_pairings, pipeline_args, outside_folder_struct_template,
 									   task_folder_path_template, job_folder_path_template, args)
 
@@ -863,7 +860,7 @@ def main():
 	parser_run.add_argument('--group', '-g', required=True, help= "job group to run this batch in. Use bgadd /[job_group_name] to add a job group. E.g: bgadd /MSlogreg" )
 	parser_run.add_argument('--pipeline_type', '-pt',  nargs='?', const='other', default='other', choices=["TRANS_CC", "other"], help="specify type of pipeline, needed if run TRANS_CC pipeline since the pairing file format is different")
 	parser_run.add_argument('--queue', nargs='?', const='all_corradin', default="all_corradin", choices=["all_corradin", "corradin", "normal"], help="which LSF queue to spawn jobs in")
-	parser_run.add_argument('--max_iterations', nargs='?',type=int, default=None)
+	parser_run.add_argument('--max_iterations', nargs='?',type=int, default=7)
 
 
 	args = parser.parse_args()

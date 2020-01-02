@@ -37,7 +37,7 @@ class MtcTable(object):
             df = pd.DataFrame.from_dict(dictionary, orient="index")
             df = df.loc[list(common_keys), :]
 
-        df.to_csv("process_df_{}".format(dict_name), sep="\t")
+        #df.to_csv("process_df_{}".format(dict_name), sep="\t")
 
         non_geno_cols = ['NA_indices', "total"]
         non_geno_df = df[non_geno_cols].reset_index()
@@ -72,18 +72,22 @@ class MtcTable(object):
 
         df = df.query("case_count!=0 and control_count!=0 ")
         df = df.query(
-            "((case_count+control_count)/(case_total_no_NA + control_total_no_NA)) >0.01")
+            "(case_count/case_total_no_NA) > 0.01 and (control_count/control_total_no_NA) >0.01")
         df = df.sort_values(
             by=["GWAS_rsid", "outside_rsid", "GWAS_geno", "outside_geno"])
         geno_counts = df.groupby(["GWAS_rsid", "outside_rsid"]).size(
         ).reset_index(name="non_zero_geno_combo_counts")
-        filter_1 = pd.merge(df, geno_counts, how="inner")
+
+        filter_1 = pd.merge(df, geno_counts, how="inner").query("non_zero_geno_combo_counts > 4")
 
         # made these a parameter of [sample_out file length - 2] (2 lines of
         # header): total_case_unfiltered, total_control_unfiltered
+        filtered_after_1 = geno_counts.query("not(non_zero_geno_combo_counts > 4)")
 
-        filter_2 = filter_1.query("(case_total_no_NA/{}) > 0.1 & (control_total_no_NA/{}) > 0.1 & non_zero_geno_combo_counts > 4".format(
+        filter_2 = filter_1.query("(case_total_no_NA/{}) > 0.1 & (control_total_no_NA/{}) > 0.1".format(
             total_case_unfiltered, total_control_unfiltered))
+
+        filtered_after_2 = filter_1.query(f"not ((case_total_no_NA/{total_case_unfiltered}) > 0.1 & (control_total_no_NA/{total_control_unfiltered}) > 0.1)")
 
         # count all GWAS_Outside genotype combinations per GWAS_rsid (for each
         # GWAS rsid summing/marginalizing over all the geno combo of all
@@ -91,7 +95,7 @@ class MtcTable(object):
         mtc_table_created = filter_2.groupby("GWAS_rsid").size().reset_index(
             name="num_geno_combo_per_GWAS_rsid_filtered_more_than_4")
         mtc_table_created["threshold"] = 0.05 / mtc_table_created.iloc[:, 1]
-        return mtc_table_created, found_pairs, filter_1, filter_2
+        return mtc_table_created, found_pairs, filter_1, filter_2, filtered_after_1, filtered_after_2
 
     @classmethod
     def make_mtc_table_from_dict(cls, case_combined_dict, control_combined_dict, total_case_unfiltered, total_control_unfiltered):
@@ -111,10 +115,10 @@ class MtcTable(object):
 
         case_control_combined_df.to_csv("case_control_combined_df", sep="\t")
 
-        mtc_table, found_pairs, filter_1, filter_2 = cls.create_mtc_table(
+        mtc_table, found_pairs, filter_1, filter_2, filtered_after_1, filtered_after_2 = cls.create_mtc_table(
             case_control_combined_df, total_case_unfiltered, total_control_unfiltered)
 
-        return mtc_table, found_pairs, filter_1, filter_2
+        return mtc_table, found_pairs, filter_1, filter_2, filtered_after_1, filtered_after_2
 
 
 class StepwiseFilter(object):
