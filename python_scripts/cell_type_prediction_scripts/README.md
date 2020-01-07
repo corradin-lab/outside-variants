@@ -7,8 +7,8 @@ This pipeline is used for generate heatmap to demonstrate peaks in multiple cell
 
 ## Required data
 * peaks file: should contains peaks for segmenting significant/non-significant regions, it must represent each cell type peaks. Usually contains three columns: chromosome number (chr#), start position, end position. 
-* SNPs file: a file with SNPs coordinates, should contains 6 columns: chromosome number (chr#), position of outside variant (start and end), outside variant, GWAS variant, significnat or not (1 represent for significant, 0 represent for non-significant). Example row: `chr2	230355955	230355956	rs10165012	rs10201872	1`
-* cell type file: a file with one row only, which contains all cell types want to run in this pipeline. 
+* SNPs file: a tab-separated or space-separated file with SNPs coordinates, should contains 6 columns: chromosome number (chr#), position of outside variant (start and end), outside variant, GWAS variant, significnat or not (1 represent for significant, 0 represent for non-significant). Example row: `chr2	230355955	230355956	rs10165012	rs10201872	1`
+* cell type file: a file with one row only, which contains all cell types want to run in this pipeline, separated by comma, for example: `activated_Th17_H3K27ac tCD8_H3K27ac`
 * wig/bigwig files: if use bigwig approach used, should give extra space, due to temporary bedgraph and wig files generated in the analysis. 
 
 
