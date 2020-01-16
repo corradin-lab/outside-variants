@@ -60,7 +60,7 @@ from num2words import num2words
 
 
 MAX_JOB_RETRY_COUNT = 10
-MAX_ITERATIONS_PER_JOB = 100_000
+MAX_ITERATIONS_PER_JOB = 10_000
 RsidPair = namedtuple("RsidPair",["GWAS_rsid", "outside_rsid"])
 SinglePairing = namedtuple("SinglePairing",["pairing_file_line", "rsid_pair_tuple"])
 
